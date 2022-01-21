@@ -23,13 +23,17 @@ import ch.qos.logback.core.layout.DummyLayout;
 import ch.qos.logback.core.status.Status;
 import ch.qos.logback.core.testUtil.StatusChecker;
 
+import org.fusesource.jansi.AnsiConsole;
 import org.fusesource.jansi.AnsiPrintStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.FilterOutputStream;
+import java.io.OutputStream;
 import java.io.PrintStream;
 import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Field;
 import java.nio.charset.Charset;
 
 import static org.junit.Assert.assertEquals;
@@ -43,13 +47,11 @@ public class ConsoleAppenderTest extends AbstractAppenderTest<Object> {
 
     XTeeOutputStream teeOut;
     XTeeOutputStream teeErr;
-    PrintStream originalOut;
-    PrintStream originalErr;
+    OutputStream originalOut;
+    OutputStream originalErr;
 
     @Before
     public void setUp() {
-        originalOut = System.out;
-        originalErr = System.err;
         // teeOut will output bytes on System out but it will also
         // collect them so that the output can be compared against
         // some expected output data
@@ -60,14 +62,27 @@ public class ConsoleAppenderTest extends AbstractAppenderTest<Object> {
         teeErr = new XTeeOutputStream(null);
 
         // redirect System.out to teeOut and System.err to teeErr
-        System.setOut(new PrintStream(teeOut));
-        System.setErr(new PrintStream(teeErr));
+        originalOut = replace(AnsiConsole.out(), teeOut);
+        originalErr = replace(AnsiConsole.err(), teeErr);
+    }
+
+    private OutputStream replace(AnsiPrintStream ansiPrintStream, OutputStream os) {
+        try {
+            Field field = FilterOutputStream.class.getDeclaredField("out");
+            field.setAccessible(true);
+            OutputStream oldOs = (OutputStream) field.get(ansiPrintStream);
+            field.set(ansiPrintStream, os);
+            return oldOs;
+        } catch (Throwable t) {
+            throw new IllegalStateException("Unable to initialize Jansi for testing", t);
+        }
     }
 
     @After
     public void tearDown() {
-        System.setOut(originalOut);
-        System.setErr(originalErr);
+        replace(AnsiConsole.out(), originalOut);
+        replace(AnsiConsole.err(), originalErr);
+        AnsiConsole.systemUninstall();
     }
 
     @Override
